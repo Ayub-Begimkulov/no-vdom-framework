@@ -122,9 +122,7 @@ function renderTree(tree: INode, parent: HTMLElement) {
         parent.removeChild(el);
       }
     };
-    parent.appendChild(el);
-    tree.condition();
-    activeFunction();
+    tree.condition() ? parent.appendChild(el) : parent.appendChild(comment);
     activeFunction = null;
   } else {
     parent.appendChild(el);
