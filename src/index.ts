@@ -1,3 +1,6 @@
+import { buildTree } from './buildTree';
+import { INode } from './types';
+
 /* 
   TODO
   1) Do an auto update system according to the state
@@ -7,27 +10,27 @@
 
 */
 
-interface INode {
-  tag: string;
-  attrs: Record<string, string>;
-  condition?: () => boolean;
-  on?: Record<string, EventListenerOrEventListenerObject>;
-  children?: Array<INode | string>;
-}
+const tree = buildTree(`
+  <div class="text">
+    <div>{{ text }}</div>
+    <input type="text" @input="onInput" />
+    <p class="{{text}}">asdf</p>
+  </div>
+`);
 
 let activeFunction: Function | null = null;
 const deps: Record<string, Set<Function>> = Object.create(null);
-const removeListenersSet = new Set<Function>();
+
+const addDep = (key: string, value: Function) =>
+  (deps[key] || (deps[key] = new Set())).add(value);
 
 const state: Record<string, string> = new Proxy(
   {
-    text: ''
+    text: 'hello world'
   },
   {
     get(obj: typeof state, key: string) {
-      if (activeFunction) {
-        (deps[key] || (deps[key] = new Set())).add(activeFunction);
-      }
+      activeFunction && addDep(key, activeFunction);
       return obj[key];
     },
     set(obj: typeof state, key: string, val: any) {
@@ -38,58 +41,25 @@ const state: Record<string, string> = new Proxy(
   }
 );
 
-const tree: INode = {
-  tag: 'div',
-  attrs: {
-    class: 'test'
-  },
-  children: [
-    {
-      tag: 'div',
-      attrs: {},
-      condition: () => !!state.text,
-      children: ['{{text}}']
-    },
-    {
-      tag: 'input',
-      attrs: {
-        type: 'text'
-      },
-      on: {
-        input: e => (state.text = (e.target as HTMLInputElement).value)
-      }
-    },
-    {
-      tag: 'p',
-      attrs: {
-        class: '{{ text }}'
-      },
-      children: ['fasfkjsa']
-    }
-  ]
+const listeners: Record<string, EventListenerOrEventListenerObject> = {
+  onInput: (e: Event) => (state.text = (e.target as HTMLInputElement).value)
 };
 
-function renderTree(tree: INode, parent: HTMLElement) {
+const renderTree = (tree: INode, parent: HTMLElement) => {
   const el = document.createElement(tree.tag);
 
-  Object.entries(tree.attrs).forEach(([key, value]) => {
-    let match, stateKey;
+  tree.attrs.forEach(({ name, value }) => {
+    let match, key;
     if ((match = value.match(/{{([^{}]*)}}/))) {
-      stateKey = match[1].trim();
+      key = match[1].trim();
     }
 
-    if (stateKey) {
-      (deps[stateKey] || (deps[stateKey] = new Set())).add((val: string) =>
-        el.setAttribute(key, val)
-      );
+    if (name.charAt(0) === '@') {
+      listeners[value] && el.addEventListener(name.substr(1), listeners[value]);
+    } else {
+      key && addDep(key, (val: string) => el.setAttribute(name, val));
+      el.setAttribute(name, key ? state[key] : value);
     }
-
-    el.setAttribute(key, stateKey ? state[stateKey] : value);
-  });
-
-  Object.entries(tree.on || {}).forEach(([key, value]) => {
-    el.addEventListener(key, value);
-    removeListenersSet.add(() => el.removeEventListener(key, value));
   });
 
   tree.children?.forEach(child => {
@@ -98,11 +68,7 @@ function renderTree(tree: INode, parent: HTMLElement) {
       const text = document.createTextNode(key ? state[key] : child);
       el.appendChild(text);
 
-      if (key) {
-        (deps[key] || (deps[key] = new Set())).add(
-          (val: string) => (text.nodeValue = val)
-        );
-      }
+      key && addDep(key, (val: string) => (text.nodeValue = val));
     } else {
       renderTree(child, el);
     }
@@ -128,6 +94,6 @@ function renderTree(tree: INode, parent: HTMLElement) {
     parent.appendChild(el);
   }
   return parent;
-}
+};
 
 renderTree(tree, document.getElementById('app')!);
