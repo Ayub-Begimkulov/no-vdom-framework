@@ -3,17 +3,14 @@ import { INode } from './types';
 
 /* 
   TODO
-  1) Do an auto update system according to the state
-  2) Add ability to pass functions to the template
-  3) Add ability to manipulate state from template
-  4) Add ability to use string as a template 
-
+  1) For Loop
 */
 
-let activeFunction: Function | null = null;
-const deps: Record<string, Set<Function>> = Object.create(null);
+type Patch = (newVal: any, oldVal: any) => void;
+let activeFunction: Patch | null = null;
+const deps: Record<string, Set<Patch>> = Object.create(null);
 
-const addDep = (key: string, value: Function) =>
+const addDep = (key: string, value: Patch) =>
   (deps[key] || (deps[key] = new Set())).add(value);
 
 const state: Record<string, any> = new Proxy(
@@ -27,8 +24,8 @@ const state: Record<string, any> = new Proxy(
       return obj[key];
     },
     set(obj: typeof state, key: string, val: any) {
+      deps[key]?.forEach(patch => patch(val, obj[key]));
       obj[key] = val;
-      deps[key]?.forEach(patch => patch(val));
       return true;
     }
   }
@@ -52,10 +49,20 @@ const listeners: Record<string, EventListenerOrEventListenerObject> = {
   onInput: (e: Event) => (state.text = (e.target as HTMLInputElement).value)
 };
 
-const renderTree = (tree: INode, parent: HTMLElement) => {
-  const el = document.createElement(tree.tag);
+const renderNode = (node: INode | string, parent: HTMLElement) => {
+  if (typeof node === 'string') {
+    const key = node.match(/{{([^{}]*)}}/)?.[1].trim();
+    const text = document.createTextNode(key ? state[key] : node);
+    parent.appendChild(text);
 
-  tree.attrs.forEach(({ name, value }) => {
+    key && addDep(key, (val: string) => (text.nodeValue = val));
+
+    return;
+  }
+
+  const el = document.createElement(node.tag);
+
+  node.attrs.forEach(({ name, value }) => {
     let match, key;
     if ((match = value.match(/{{([^{}]*)}}/))) {
       key = match[1].trim();
@@ -65,23 +72,15 @@ const renderTree = (tree: INode, parent: HTMLElement) => {
     el.setAttribute(name, key ? state[key] : value);
   });
 
-  tree.on?.forEach(({ name, value }) => {
+  node.on?.forEach(({ name, value }) => {
     listeners[value] && el.addEventListener(name, listeners[value]);
   });
 
-  tree.children?.forEach(child => {
-    if (typeof child === 'string') {
-      const key = child.match(/{{([^{}]*)}}/)?.[1].trim();
-      const text = document.createTextNode(key ? state[key] : child);
-      el.appendChild(text);
-
-      key && addDep(key, (val: string) => (text.nodeValue = val));
-    } else {
-      renderTree(child, el);
-    }
+  node.children?.forEach(child => {
+    renderNode(child, el);
   });
 
-  const condition = tree.condition;
+  const condition = node.condition;
 
   if (condition) {
     const comment = document.createComment('');
@@ -103,5 +102,5 @@ const renderTree = (tree: INode, parent: HTMLElement) => {
   }
   return parent;
 };
-
-renderTree(tree, document.getElementById('app')!);
+const root = document.getElementById('app')!;
+tree.forEach(node => renderNode(node, root));

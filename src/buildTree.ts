@@ -1,14 +1,11 @@
 import { parseHTML } from './compiler/parse-html';
 import { INode, IAttribute } from './types';
 
-/* 
-  TODO work on cases where we have multiple children
-*/
 export const buildTree = <T extends Record<string, any> = Record<string, any>>(
   html: string,
   state: T
 ) => {
-  const AST = {} as INode;
+  const AST: INode[] = [];
   const stack: any[] = [];
 
   parseHTML(html, {
@@ -45,24 +42,19 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
         }
       });
 
-      if (!stack[stack.length - 1]) {
-        AST.tag = tag;
-        AST.attrs = elAttrs;
-        condition && (AST.condition = condition);
-        AST.children = [];
-        stack.push(AST);
-      } else {
-        const parent = stack[stack.length - 1];
-        !parent.children && (parent.children = []);
-        const elem = {
-          tag,
-          attrs: elAttrs,
-          condition,
-          on
-        };
-        parent.children.push(elem);
-        !unary && stack.push(elem);
-      }
+      const parent = stack[stack.length - 1];
+      const childrenArray = parent
+        ? parent.children || (parent.children = [])
+        : AST;
+      const node: INode = {
+        tag,
+        attrs: elAttrs,
+        children: []
+      };
+      condition && (node.condition = condition);
+      on.length > 0 && (node.on = on);
+      childrenArray.push(node);
+      !unary && stack.push(node);
     },
     end(_tag: string, _start: string, _end: string) {
       stack.pop();
@@ -70,9 +62,11 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
     chars(text: string, _start: string, _end: string) {
       const trimmedText = text.trim();
       if (trimmedText.length > 0) {
-        const parent = stack[stack.length - 1] || AST;
-        !parent.children && (parent.children = []);
-        parent.children.push(trimmedText);
+        const parent = stack[stack.length - 1];
+        const childrenArray = parent
+          ? parent.children || (parent.children = [])
+          : AST;
+        childrenArray.push(trimmedText);
       }
     },
     warn: (message: string, { start, end }: Record<string, number>) =>
