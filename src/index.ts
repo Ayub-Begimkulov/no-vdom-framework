@@ -10,23 +10,16 @@ import { INode } from './types';
 
 */
 
-const tree = buildTree(`
-  <div class="text">
-    <div>{{ text }}</div>
-    <input type="text" @input="onInput" />
-    <p class="{{text}}">asdf</p>
-  </div>
-`);
-
 let activeFunction: Function | null = null;
 const deps: Record<string, Set<Function>> = Object.create(null);
 
 const addDep = (key: string, value: Function) =>
   (deps[key] || (deps[key] = new Set())).add(value);
 
-const state: Record<string, string> = new Proxy(
+const state: Record<string, any> = new Proxy(
   {
-    text: 'hello world'
+    text: 'hello world',
+    items: [1, 2, 3]
   },
   {
     get(obj: typeof state, key: string) {
@@ -39,6 +32,20 @@ const state: Record<string, string> = new Proxy(
       return true;
     }
   }
+);
+
+const tree = buildTree<typeof state>(
+  `
+  <div class="text">
+    <div $if="!!state.text">{{ text }}</div>
+    <input type="text" @input="onInput" />
+    <p class="{{text}}">asdf</p>
+    <ul>
+      <li #for="item in items">{{ item }}</li>   
+    </ul>
+  </div>
+`,
+  state
 );
 
 const listeners: Record<string, EventListenerOrEventListenerObject> = {
@@ -54,12 +61,12 @@ const renderTree = (tree: INode, parent: HTMLElement) => {
       key = match[1].trim();
     }
 
-    if (name.charAt(0) === '@') {
-      listeners[value] && el.addEventListener(name.substr(1), listeners[value]);
-    } else {
-      key && addDep(key, (val: string) => el.setAttribute(name, val));
-      el.setAttribute(name, key ? state[key] : value);
-    }
+    key && addDep(key, (val: string) => el.setAttribute(name, val));
+    el.setAttribute(name, key ? state[key] : value);
+  });
+
+  tree.on?.forEach(({ name, value }) => {
+    listeners[value] && el.addEventListener(name, listeners[value]);
   });
 
   tree.children?.forEach(child => {
@@ -74,11 +81,12 @@ const renderTree = (tree: INode, parent: HTMLElement) => {
     }
   });
 
-  if (tree.condition) {
+  const condition = tree.condition;
+
+  if (condition) {
     const comment = document.createComment('');
     activeFunction = () => {
-      // @ts-ignore
-      if (tree.condition()) {
+      if (condition(state)) {
         if (el.parentNode !== parent) {
           parent.insertBefore(el, comment);
           parent.removeChild(comment);
@@ -88,7 +96,7 @@ const renderTree = (tree: INode, parent: HTMLElement) => {
         parent.removeChild(el);
       }
     };
-    tree.condition() ? parent.appendChild(el) : parent.appendChild(comment);
+    condition(state) ? parent.appendChild(el) : parent.appendChild(comment);
     activeFunction = null;
   } else {
     parent.appendChild(el);

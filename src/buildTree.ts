@@ -1,7 +1,13 @@
 import { parseHTML } from './compiler/parse-html';
 import { INode, IAttribute } from './types';
 
-export const buildTree = (html: string) => {
+/* 
+  TODO work on cases where we have multiple children
+*/
+export const buildTree = <T extends Record<string, any> = Record<string, any>>(
+  html: string,
+  state: T
+) => {
   const AST = {} as INode;
   const stack: any[] = [];
 
@@ -13,9 +19,36 @@ export const buildTree = (html: string) => {
       _start: number,
       _end: number
     ) {
+      const on: IAttribute[] = [];
+      let condition: Function | null = null;
+      const elAttrs: IAttribute[] = [];
+      const forInRegex = /\s*([a-zA-Z_$][0-9a-zA-Z_$]*)\s+in\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*/;
+      attrs.forEach(attr => {
+        switch (attr.name.charAt(0)) {
+          case '@':
+            on.push({ name: attr.name.substr(1), value: attr.value });
+            break;
+          case '$':
+            condition = new Function('state', 'return ' + attr.value);
+            break;
+          case '#':
+            const match = attr.value.match(forInRegex);
+            if (match) {
+              const alias = match[1].trim();
+              const arrKey = match[2].trim();
+
+              console.log(alias, state[arrKey]);
+            }
+            break;
+          default:
+            elAttrs.push(attr);
+        }
+      });
+
       if (!stack[stack.length - 1]) {
         AST.tag = tag;
-        AST.attrs = attrs;
+        AST.attrs = elAttrs;
+        condition && (AST.condition = condition);
         AST.children = [];
         stack.push(AST);
       } else {
@@ -23,7 +56,9 @@ export const buildTree = (html: string) => {
         !parent.children && (parent.children = []);
         const elem = {
           tag,
-          attrs
+          attrs: elAttrs,
+          condition,
+          on
         };
         parent.children.push(elem);
         !unary && stack.push(elem);
