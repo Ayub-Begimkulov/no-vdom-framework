@@ -1,12 +1,14 @@
 import { parseHTML } from './compiler/parse-html';
 import { INode, IAttribute } from './types';
 
-export const buildTree = <T extends Record<string, any> = Record<string, any>>(
-  html: string,
-  state: T
-) => {
+export const buildTree = (html: string) => {
   const AST: INode[] = [];
-  const stack: any[] = [];
+  const stack: INode[] = [];
+
+  const getChildrenArray = () => {
+    const parent = stack[stack.length - 1];
+    return parent ? parent.children || (parent.children = []) : AST;
+  };
 
   parseHTML(html, {
     start(
@@ -20,6 +22,8 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
       let condition: Function | null = null;
       const elAttrs: IAttribute[] = [];
       const forInRegex = /\s*([a-zA-Z_$][0-9a-zA-Z_$]*)\s+in\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*/;
+      let forLoop: INode['forLoop'] | null = null;
+
       attrs.forEach(attr => {
         switch (attr.name.charAt(0)) {
           case '@':
@@ -32,9 +36,11 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
             const match = attr.value.match(forInRegex);
             if (match) {
               const alias = match[1].trim();
-              const arrKey = match[2].trim();
-
-              console.log(alias, state[arrKey]);
+              const key = match[2].trim();
+              forLoop = {
+                alias,
+                key
+              };
             }
             break;
           default:
@@ -42,10 +48,6 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
         }
       });
 
-      const parent = stack[stack.length - 1];
-      const childrenArray = parent
-        ? parent.children || (parent.children = [])
-        : AST;
       const node: INode = {
         tag,
         attrs: elAttrs,
@@ -53,6 +55,8 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
       };
       condition && (node.condition = condition);
       on.length > 0 && (node.on = on);
+      forLoop && (node.forLoop = forLoop);
+      const childrenArray = getChildrenArray();
       childrenArray.push(node);
       !unary && stack.push(node);
     },
@@ -62,10 +66,7 @@ export const buildTree = <T extends Record<string, any> = Record<string, any>>(
     chars(text: string, _start: string, _end: string) {
       const trimmedText = text.trim();
       if (trimmedText.length > 0) {
-        const parent = stack[stack.length - 1];
-        const childrenArray = parent
-          ? parent.children || (parent.children = [])
-          : AST;
+        const childrenArray = getChildrenArray();
         childrenArray.push(trimmedText);
       }
     },

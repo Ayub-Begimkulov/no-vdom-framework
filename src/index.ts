@@ -1,5 +1,5 @@
 import { buildTree } from './buildTree';
-import { INode } from './types';
+import { INode, IAttribute } from './types';
 
 /* 
   TODO
@@ -24,29 +24,32 @@ const state: Record<string, any> = new Proxy(
       return obj[key];
     },
     set(obj: typeof state, key: string, val: any) {
-      deps[key]?.forEach(patch => patch(val, obj[key]));
+      let prev = obj[key];
       obj[key] = val;
+      deps[key]?.forEach(patch => patch(val, prev));
       return true;
     }
   }
 );
 
-const tree = buildTree<typeof state>(
+const tree = buildTree(
   `
   <div class="text">
     <div $if="!!state.text">{{ text }}</div>
     <input type="text" @input="onInput" />
     <p class="{{text}}">asdf</p>
+    <button @click="onClick">Click</button>
     <ul>
       <li #for="item in items">{{ item }}</li>   
     </ul>
   </div>
-`,
-  state
+`
 );
 
 const listeners: Record<string, EventListenerOrEventListenerObject> = {
-  onInput: (e: Event) => (state.text = (e.target as HTMLInputElement).value)
+  onInput: e => (state.text = (e.target as HTMLInputElement).value),
+  onClick: _e =>
+    (state.items = new Array(Math.floor(Math.random() * 10)).fill(1))
 };
 
 const renderNode = (node: INode | string, parent: HTMLElement) => {
@@ -60,17 +63,28 @@ const renderNode = (node: INode | string, parent: HTMLElement) => {
     return;
   }
 
+  if (node.forLoop) {
+    const key = node.forLoop.key;
+    const arr = state[key];
+    if (arr) {
+      const test = {
+        ...node,
+        forLoop: undefined
+      };
+
+      arr.forEach(() => renderNode(test, parent));
+
+      addDep(key, (newVal: any[], _oldVal: any[]) => {
+        removeNodes(parent);
+        newVal.forEach(() => renderNode(test, parent));
+      });
+    }
+    return;
+  }
+
   const el = document.createElement(node.tag);
 
-  node.attrs.forEach(({ name, value }) => {
-    let match, key;
-    if ((match = value.match(/{{([^{}]*)}}/))) {
-      key = match[1].trim();
-    }
-
-    key && addDep(key, (val: string) => el.setAttribute(name, val));
-    el.setAttribute(name, key ? state[key] : value);
-  });
+  setAttrs(el, node.attrs);
 
   node.on?.forEach(({ name, value }) => {
     listeners[value] && el.addEventListener(name, listeners[value]);
@@ -100,7 +114,29 @@ const renderNode = (node: INode | string, parent: HTMLElement) => {
   } else {
     parent.appendChild(el);
   }
-  return parent;
+  return el;
 };
+
+const setAttrs = (el: HTMLElement, attrs: IAttribute[]) => {
+  attrs.forEach(({ name, value }) => {
+    let match, key;
+    if ((match = value.match(/{{([^{}]*)}}/))) {
+      key = match[1].trim();
+    }
+
+    key && addDep(key, (val: string) => el.setAttribute(name, val));
+    el.setAttribute(name, key ? state[key] : value);
+  });
+
+  return el;
+};
+
 const root = document.getElementById('app')!;
 tree.forEach(node => renderNode(node, root));
+
+// const isDef = (val: any) => val != null;
+const removeNodes = (parent: HTMLElement) => {
+  while (parent.firstChild) {
+    parent.removeChild(parent.firstChild);
+  }
+};
